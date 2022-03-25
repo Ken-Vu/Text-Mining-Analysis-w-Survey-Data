@@ -1,0 +1,116 @@
+---
+title: "Post Training Survey Data Analysis"
+author: "Ken Vu"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: pdf_document
+---
+
+# Introduction
+Here's an example of analysis of survey data for a training held at the San Jose
+Conservation Corps.  We'll be using it to generate a word cloud to study the
+keywords used in the survey responses to the question, 
+"What skills did you hope to learn/improve on through this training session?"
+
+# Code for Survey Analysis
+First, let's load all of the relevant libraries.
+```{r}
+library(pacman)
+p_load(dplyr, tidytext, tidyverse, stringi, wordcloud, igraph, ggraph)
+```
+
+Let's load the survey data.
+```{r}
+df <- read.csv("training_response_sample.csv")
+head(df)
+```
+
+
+## Looking at Individual Tokens
+Let's see what the attendees think of the training in terms of commonly
+used words related to the skills they hope to gain and/or work on.
+
+### Data Preparation and Processing
+Break down the words into individual tokens 
+```{r}
+# Tokenize the words 
+data_words<- df %>% unnest_tokens(word, skills_gain) %>%
+  anti_join(stop_words) %>% count(word, sort = T) 
+
+# Removing words related to the title of the training or the city of
+# "San Jose" (a bigram and name that makes no sense when separated into tokens)
+data_words_small <- data_words[-c(1,2, 25,31),]
+data_words_small
+```
+
+### Visualization
+Make a word cloud out of it
+```{r}
+data_words_small %>% with(wordcloud(word, n, max.words = 40, scale = c(2.5, 0.25)))
+```
+
+
+## Bigrams
+Let's do the same analysis as before, except through bigrams.
+### Data Preparation and Processing
+```{r}
+data_bigrams <- na.omit(df %>% unnest_tokens(bigram, skills_gain,
+                                                        token = "ngrams",
+                                                        n = 2))
+head(data_bigrams)
+```
+
+Get bi-grams into separate words so we can remove stop words
+```{r}
+bigrams_separated <- data_bigrams %>% separate(bigram, c("word1", "word2"),
+                                                 sep = " ")
+bigrams_filtered <- bigrams_separated %>%
+  filter(!word1 %in% stop_words$word) %>%
+  filter(!word2 %in% stop_words$word)
+
+# new bigram counts:
+bigram_counts <- bigrams_filtered %>% 
+  count(word1, word2, sort = TRUE)
+
+head(bigram_counts)
+```
+
+Looks like most of the words are titles and names linked to those titles.
+Let's bring both words in the bi-grams together. 
+```{r}
+bigrams_united <- bigrams_filtered %>%
+  unite(bigram, word1, word2, sep = " ")
+head(bigrams_united)
+```
+
+### Visualization
+Create an igraph object from tidy data 
+```{r}
+library(igraph)
+
+# original counts
+head(bigram_counts)
+
+# only look at relatively common combinations 
+bigram_graph <- bigram_counts %>% graph_from_data_frame()
+bigram_graph
+```
+
+We can convert an igraph object into a ggraph with the "ggraph" fcn.  Then, add layers to it - nodes, edges, text.
+```{r}
+set.seed(2017)
+
+ggraph(bigram_graph, layout = "fr") + geom_edge_link() + geom_node_point() + 
+  geom_node_text(aes(label = name), vjust = 0.5, hjust = 0.5) + theme_void()
+```
+
+***NOTE***: The analysis isn't as useful here as there aren't enough responses
+to fully get a diverse portfolio of bigrams.  However, despite the small
+population of the survey respondents (at the time this survey was deployed),
+we can see some common word associations within the responses of the training
+attendees.
+
+Here, we can see that when it comes to the environment, there's a strong drive
+among attendees to address social injustices and issues related to the
+environment.  We also see a desire to gain knowledge and work experience on how
+to tackle these issues with a brief mention of government policy (?) and San Jose
+itself (the city at which the attendees are based at).
